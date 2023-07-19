@@ -25,19 +25,19 @@ const state = proxy({ current: null, mode: 0 });
 function ComputeFrustumVertices(fov, aspect, near, far) {
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
   const projInv = camera.projectionMatrixInverse;
-  const frustum_vertices = [];
+  const frustumVertices = [];
   const v0 = new THREE.Vector3(0, 0, 0);
   const v1 = new THREE.Vector3(-1, -1, 1).applyMatrix4(projInv);
   const v2 = new THREE.Vector3(-1, 1, 1).applyMatrix4(projInv);
   const v3 = new THREE.Vector3(1, 1, 1).applyMatrix4(projInv);
   const v4 = new THREE.Vector3(1, -1, 1).applyMatrix4(projInv);
-  frustum_vertices.push(v0.x, v0.y, v0.z);
-  frustum_vertices.push(v1.x, v1.y, v1.z);
-  frustum_vertices.push(v2.x, v2.y, v2.z);
-  frustum_vertices.push(v3.x, v3.y, v3.z);
-  frustum_vertices.push(v4.x, v4.y, v4.z);
+  frustumVertices.push(v0.x, v0.y, v0.z);
+  frustumVertices.push(v1.x, v1.y, v1.z);
+  frustumVertices.push(v2.x, v2.y, v2.z);
+  frustumVertices.push(v3.x, v3.y, v3.z);
+  frustumVertices.push(v4.x, v4.y, v4.z);
 
-  return new Float32Array(frustum_vertices);
+  return new Float32Array(frustumVertices);
 }
 
 function Frustum({ fov, aspect, near, far }) {
@@ -62,15 +62,15 @@ function Frustum({ fov, aspect, near, far }) {
     );
   }, [fov, aspect, near, far]);
 
-  const frustum_vertices_array = ComputeFrustumVertices(fov, aspect, near, far);
+  const frustumVertices_array = ComputeFrustumVertices(fov, aspect, near, far);
 
   return (
     <mesh ref={frustumRef}>
       <bufferGeometry>
         <bufferAttribute
           attach="attributes-position"
-          array={frustum_vertices_array}
-          count={frustum_vertices_array.length / 3}
+          array={frustumVertices_array}
+          count={frustumVertices_array.length / 3}
           itemSize={3}
         />
         <bufferAttribute
@@ -201,9 +201,9 @@ const Shadows = memo(() => (
 ));
 
 function App() {
-  const { height, radius, color } = useControls({
-    Add: button(() => {
-      // console.log(useThree())
+  const { count, height, radius, color } = useControls({
+    Camera: folder({
+      count: { value: 4, min: 0, max: 10, step: 1 },
     }),
     Cylinder: folder({
       height: { value: 1.75, min: 0.1, max: 3, step: 0.1 },
@@ -222,8 +222,13 @@ function App() {
             <cylinderGeometry args={[radius, radius, height, 32]} />
             <meshStandardMaterial color={color} />
           </mesh>
-          <AuxCamera id={"C0"} initPos={new THREE.Vector3(0, 1, 2.5)} />
-          <AuxCamera id={"C1"} initPos={new THREE.Vector3(0.5, 1, 2.5)} />
+          {[...Array(count).keys()].map((id) => (
+            <AuxCamera
+              key={id}
+              id={`C${id}`}
+              initPos={new THREE.Vector3(0.5 * id, 1, 2.5)}
+            />
+          ))}
           <Grid
             position={[0, -0.01, 0]}
             args={[10, 10]}
