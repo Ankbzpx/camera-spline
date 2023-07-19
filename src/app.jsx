@@ -20,7 +20,7 @@ import "./app.css";
 
 // Reactive state model, using Valtio ...
 const modes = ["translate", "rotate"];
-const state = proxy({ current: null, mode: 0 });
+const state = proxy({ focal: null, root: null, mode: 0 });
 
 function ComputeFrustumVertices(fov, aspect, near, far) {
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
@@ -123,8 +123,10 @@ function AuxCamera({ id, initPos }) {
     set({ pos: { x: worldPos.x, y: worldPos.y, z: worldPos.z } });
   });
 
+  const root_id = `${id}_root`;
+
   return (
-    <object3D position={[pos.x, pos.y, pos.z]}>
+    <object3D position={[pos.x, pos.y, pos.z]} name={root_id}>
       <PerspectiveCamera
         manual
         ref={cameraRef}
@@ -142,19 +144,25 @@ function AuxCamera({ id, initPos }) {
         position={[0, 0, -1]}
         onClick={(e) => {
           e.stopPropagation();
-          state.current = id;
+          state.focal = id;
+          state.root = root_id;
         }}
         onPointerOver={(e) => (e.stopPropagation(), setHovered(true))}
         onPointerOut={() => setHovered(false)}
-        onPointerMissed={(e) => e.type === "click" && (state.current = null)}
+        onPointerMissed={(e) => {
+          if (e.type === "click") {
+            state.focal = null;
+            state.root = null;
+          }
+        }}
         onContextMenu={(e) =>
-          snap.current === id &&
+          snap.focal === id &&
           (e.stopPropagation(), (state.mode = (snap.mode + 1) % modes.length))
         }
       >
         <sphereGeometry args={[0.1, 32, 16]} />
         <meshStandardMaterial
-          color={snap.current === id ? "hotpink" : "orange"}
+          color={snap.focal === id ? "hotpink" : "orange"}
         />
       </mesh>
     </object3D>
@@ -168,11 +176,15 @@ function Controls() {
   return (
     <>
       {/* As of drei@7.13 transform-controls can refer to the target by children, or the object prop */}
-      {snap.current && (
+      {snap.focal && (
         <>
-          <TransformControls object={scene.getObjectByName(snap.current)} />
+          <TransformControls object={scene.getObjectByName(snap.focal)} />
+        </>
+      )}
+      {snap.root && (
+        <>
           <TransformControls
-            object={scene.getObjectByName(snap.current).parent}
+            object={scene.getObjectByName(snap.root)}
             mode={modes[snap.mode]}
           />
         </>
@@ -200,11 +212,29 @@ const Shadows = memo(() => (
   </AccumulativeShadows>
 ));
 
-function App() {
-  const { count, height, radius, color } = useControls({
+function CameraManager() {
+  const { count } = useControls({
     Camera: folder({
       count: { value: 4, min: 0, max: 10, step: 1 },
     }),
+  });
+
+  useEffect(() => {
+    state.focal = null;
+    state.root = null;
+  }, [count]);
+
+  return [...Array(count).keys()].map((id) => (
+    <AuxCamera
+      key={id}
+      id={`C${id}`}
+      initPos={new THREE.Vector3(0.5 * id, 1, 2.5)}
+    />
+  ));
+}
+
+function App() {
+  const { height, radius, color } = useControls({
     Cylinder: folder({
       height: { value: 1.75, min: 0.1, max: 3, step: 0.1 },
       radius: { value: 0.3, min: 0.01, max: 1, step: 0.05 },
@@ -217,18 +247,11 @@ function App() {
       <div style={{ aspectRatio: 1 / 0.6, margin: "0 auto" }}>
         <Canvas shadows camera={{ position: [0, 5, 5], fov: 55 }}>
           <color attach="background" args={["#4F4F4F"]} />
-          {/* <pointLight position={[10, 10, 10]} /> */}
           <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
             <cylinderGeometry args={[radius, radius, height, 32]} />
             <meshStandardMaterial color={color} />
           </mesh>
-          {[...Array(count).keys()].map((id) => (
-            <AuxCamera
-              key={id}
-              id={`C${id}`}
-              initPos={new THREE.Vector3(0.5 * id, 1, 2.5)}
-            />
-          ))}
+          <CameraManager />
           <Grid
             position={[0, -0.01, 0]}
             args={[10, 10]}
