@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, memo, useEffect } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useControls, button, folder } from "leva";
@@ -12,6 +12,8 @@ import {
   PerspectiveCamera,
   useHelper,
   useCursor,
+  AccumulativeShadows,
+  RandomizedLight,
 } from "@react-three/drei";
 import { proxy, useSnapshot } from "valtio";
 import "./app.css";
@@ -19,6 +21,53 @@ import "./app.css";
 // Reactive state model, using Valtio ...
 const modes = ["translate", "rotate"];
 const state = proxy({ current: null, mode: 0 });
+
+function Frustum({ camera }) {
+  const projInv = camera.projectionMatrixInverse;
+
+  const frustum_indices = new Uint16Array([
+    0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1, 1, 4, 3, 1, 3, 2,
+  ]);
+
+  const frustum_vertices = [];
+  const v0 = new THREE.Vector3(0, 0, 0);
+  const v1 = new THREE.Vector3(-1, -1, 1).applyMatrix4(projInv);
+  const v2 = new THREE.Vector3(-1, 1, 1).applyMatrix4(projInv);
+  const v3 = new THREE.Vector3(1, 1, 1).applyMatrix4(projInv);
+  const v4 = new THREE.Vector3(1, -1, 1).applyMatrix4(projInv);
+  frustum_vertices.push(v0.x, v0.y, v0.z);
+  frustum_vertices.push(v1.x, v1.y, v1.z);
+  frustum_vertices.push(v2.x, v2.y, v2.z);
+  frustum_vertices.push(v3.x, v3.y, v3.z);
+  frustum_vertices.push(v4.x, v4.y, v4.z);
+
+  const frustum_vertices_array = new Float32Array(frustum_vertices);
+
+  return (
+    <mesh>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          array={frustum_vertices_array}
+          count={frustum_vertices_array.length / 3}
+          itemSize={3}
+        />
+        <bufferAttribute
+          attach="index"
+          array={frustum_indices}
+          count={frustum_indices.length}
+          itemSize={1}
+        />
+      </bufferGeometry>
+      <meshBasicMaterial
+        color="white"
+        transparent
+        opacity={0.3}
+        depthTest={false}
+      />
+    </mesh>
+  );
+}
 
 function AuxCamera({ id, initPos }) {
   const snap = useSnapshot(state);
@@ -30,13 +79,15 @@ function AuxCamera({ id, initPos }) {
   useCursor(hovered);
 
   // Reference https://stackoverflow.com/questions/11508463/javascript-set-object-key-by-variable
-  const [{ pos, fov, aspect }, set] = useControls(() => ({
+  const [{ pos, near, far, fov, aspect }, set] = useControls(() => ({
     [`Camera ${id}`]: folder({
       pos: {
         x: initPos.x,
         y: initPos.y,
         z: initPos.z,
       },
+      near: { value: 0.1, min: 0.01, max: 1, step: 0.05 },
+      far: { value: 3, min: 1, max: 10, step: 0.1 },
       fov: { value: 55, min: 0, max: 180, step: 1 },
       aspect: { value: 1.6, min: 0.1, max: 10, step: 0.1 },
     }),
@@ -58,9 +109,12 @@ function AuxCamera({ id, initPos }) {
         ref={cameraRef}
         fov={fov}
         aspect={aspect}
-        near={0.1}
-        far={5}
-      ></PerspectiveCamera>
+        near={near}
+        far={far}
+        PerspectiveCamera
+      >
+        <Frustum camera={new THREE.PerspectiveCamera(fov, aspect, near, far)} />
+      </PerspectiveCamera>
       <mesh
         ref={focalRef}
         name={id}
@@ -112,27 +166,40 @@ function Controls() {
   );
 }
 
+const Shadows = memo(() => (
+  <AccumulativeShadows
+    temporal
+    frames={100}
+    color="#9d4b4b"
+    colorBlend={0.5}
+    alphaTest={0.9}
+    scale={20}
+  >
+    <RandomizedLight amount={8} radius={4} position={[5, 5, -10]} />
+  </AccumulativeShadows>
+));
+
 function App() {
-  const { height, radius } = useControls({
+  const { height, radius, color } = useControls({
     Add: button(() => {
       // console.log(useThree())
     }),
     Cylinder: folder({
       height: { value: 1.75, min: 0.1, max: 3, step: 0.1 },
-      radius: { value: 0.2, min: 0.01, max: 1, step: 0.05 },
+      radius: { value: 0.3, min: 0.01, max: 1, step: 0.05 },
+      color: "#9d4b4b",
     }),
   });
 
   return (
     <>
       <div style={{ aspectRatio: 1 / 0.6, margin: "0 auto" }}>
-        <Canvas camera={{ position: [0, 2, 5], fov: 55 }}>
+        <Canvas shadows camera={{ position: [0, 5, 5], fov: 55 }}>
           <color attach="background" args={["#4F4F4F"]} />
-          <ambientLight />
-          <pointLight position={[10, 10, 10]} />
-          <mesh position={[0, height / 2, 0]}>
+          {/* <pointLight position={[10, 10, 10]} /> */}
+          <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
             <cylinderGeometry args={[radius, radius, height, 32]} />
-            <meshStandardMaterial />
+            <meshStandardMaterial color={color} />
           </mesh>
           <AuxCamera id={"C0"} initPos={new THREE.Vector3(0, 1, 2.5)} />
           <AuxCamera id={"C1"} initPos={new THREE.Vector3(0.5, 1, 2.5)} />
@@ -150,6 +217,7 @@ function App() {
             sectionColor="#319BFF"
           />
           <Environment preset="city" />
+          <Shadows />
           <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
             <GizmoViewport
               axisColors={["#9d4b4b", "#2f7f4f", "#3b5b9d"]}
