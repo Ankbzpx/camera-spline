@@ -20,7 +20,13 @@ import "./app.css";
 
 // Reactive state model, using Valtio ...
 const modes = ["translate", "rotate"];
-const state = proxy({ focal: null, focalPos: [], rootPos: [], mode: 0 });
+const state = proxy({
+  focal: null,
+  focalPos: [],
+  leftHandlePos: [],
+  rightHandlePos: [],
+  mode: 0,
+});
 
 function ComputeFrustumVertices(fov, aspect, near, far) {
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
@@ -57,7 +63,7 @@ function Frustum({ fov, aspect, near, far }) {
   ]);
 
   const { opacity, color } = useControls("Frustum", {
-    opacity: { value: 0.3, min: 0.0, max: 1, step: 0.1 },
+    opacity: { value: 0.07, min: 0.0, max: 1, step: 0.01 },
     color: "#ffffff",
   });
 
@@ -106,13 +112,24 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
   const leftHandleRef = useRef(null);
   const rightHandleRef = useRef(null);
   const lineRef = useRef(null);
-  useHelper(cameraRef, THREE.CameraHelper);
 
   const [hovered, setHovered] = useState(false);
   useCursor(hovered);
 
   const [
-    { pos, rot, foc, near, far, fov, aspect, frustum, leftHandle, rightHandle },
+    {
+      pos,
+      rot,
+      foc,
+      near,
+      far,
+      fov,
+      aspect,
+      frustum,
+      helper,
+      leftHandle,
+      rightHandle,
+    },
     set,
   ] = useControls(() => ({
     // Reference https://stackoverflow.com/questions/11508463/javascript-set-object-key-by-variable
@@ -136,11 +153,16 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
       far: { value: 3, min: 1, max: 10, step: 0.1 },
       fov: { value: 55, min: 0, max: 180, step: 1 },
       aspect: { value: 1.6, min: 0.1, max: 10, step: 0.1 },
-      frustum: false,
+      frustum: true,
+      helper: true,
       leftHandle: { value: 0.5, min: 0.1, max: 2, step: 0.1 },
       rightHandle: { value: 0.5, min: 0.1, max: 2, step: 0.1 },
     }),
   }));
+
+  if (helper) {
+    useHelper(cameraRef, THREE.CameraHelper);
+  }
 
   // I wish I could put these in TransformControls callback (hack global useControls), but
   // 1. leva doesn't support duplicated entry in single useControls
@@ -170,12 +192,16 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
 
     const worldRot = new THREE.Euler().setFromQuaternion(worldQua);
     set({ pos: { x: worldPos.x, y: worldPos.y, z: worldPos.z } });
-    state.rootPos[id] = new THREE.Vector3().copy(worldPos);
     set({ rot: { x: worldRot.x, y: worldRot.y, z: worldRot.z } });
 
     focalRef.current.getWorldPosition(worldPos);
     set({ foc: { x: worldPos.x, y: worldPos.y, z: worldPos.z } });
     state.focalPos[id] = new THREE.Vector3().copy(worldPos);
+
+    leftHandleRef.current.getWorldPosition(worldPos);
+    state.leftHandlePos[id] = new THREE.Vector3().copy(worldPos);
+    rightHandleRef.current.getWorldPosition(worldPos);
+    state.rightHandlePos[id] = new THREE.Vector3().copy(worldPos);
   });
 
   const z_depth = -new THREE.Vector3(pos.x, pos.y, pos.z)
@@ -321,20 +347,27 @@ function CameraBundle({ count, initHeight }) {
     state.focal = null;
   }, [count]);
 
-  const offset = (-0.5 * (count - 1)) / 2;
+  const interval = 2.0;
+
+  const offset = (-interval * (count - 1)) / 2;
   const focal = new THREE.Vector3(0, initHeight, 0);
   const up = new THREE.Vector3(0, 1, 0);
 
   return [...Array(count).keys()].map((id) => {
-    const initPos = new THREE.Vector3(offset + 0.5 * id, initHeight, 2.5);
+    const initPos = new THREE.Vector3(offset + interval * id, initHeight, 2.5);
     const initRot = new THREE.Euler().setFromRotationMatrix(
       new THREE.Matrix4().lookAt(initPos, focal, up),
     );
-    const initFocal = new THREE.Vector3()
-      .copy(initPos)
-      .add(new THREE.Vector3().copy(focal).sub(initPos).normalize());
-    state.rootPos[id] = initPos;
-    state.focalPos[id] = initFocal;
+    const diff = new THREE.Vector3().copy(focal).sub(initPos).normalize();
+    const initFocal = new THREE.Vector3().copy(initPos).add(diff);
+
+    // Too lazy to calculate
+    if (!(`${id}` in state.leftHandlePos)) {
+      state.focalPos[id] = initFocal;
+      state.leftHandlePos[id] = initPos;
+      state.rightHandlePos[id] = initPos;
+    }
+
     return (
       <AuxCamera
         key={id}
@@ -363,51 +396,38 @@ const Shadows = memo(() => (
 function Spline({ count }) {
   const splineRef = useRef(null);
 
-  const { width, tension, supportFactor, samples, color } = useControls(
-    "Spline",
-    {
-      width: { value: 10, min: 0.01, max: 20, step: 0.5 },
-      tension: { value: 0.5, min: 0.01, max: 1, step: 0.01 },
-      supportFactor: { value: 0.01, min: 0.01, max: 0.2, step: 0.01 },
-      samples: { value: 200, min: 20, max: 1000, step: 10 },
-      color: "#9d4b4b",
-    },
-  );
+  const { width, samples, color } = useControls("Spline", {
+    width: { value: 5, min: 0.01, max: 20, step: 0.5 },
+    samples: { value: 200, min: 20, max: 1000, step: 10 },
+    color: "#ffffff",
+  });
 
   const computeCurve = () => {
     const focalPos = state.focalPos.slice(0, count);
-    const rootPos = state.rootPos.slice(0, count);
+    const leftPos = state.leftHandlePos.slice(0, count);
+    const rightPos = state.rightHandlePos.slice(0, count);
 
-    const points = [];
-    for (let i = 0; i < focalPos.length; i++) {
-      const supportVec = new THREE.Vector3()
-        .copy(rootPos[i])
-        .sub(focalPos[i])
-        .normalize()
-        .cross(new THREE.Vector3(0, 1, 0))
-        .multiplyScalar(supportFactor);
-
-      points.push(
-        new THREE.Vector3().copy(focalPos[i]).add(supportVec),
+    const verts = [];
+    for (let i = 0; i < focalPos.length - 1; i++) {
+      const curve = new THREE.CubicBezierCurve3(
         focalPos[i],
-        new THREE.Vector3().copy(focalPos[i]).sub(supportVec),
+        rightPos[i],
+        leftPos[i + 1],
+        focalPos[i + 1],
       );
+      const points = curve.getPoints(samples);
+      for (let i = 0; i < samples; i++) {
+        verts.push(points[i].x, points[i].y, points[i].z);
+      }
     }
-
-    const curve = new THREE.CatmullRomCurve3(points);
-    curve.curveType = "catmullrom";
-    curve.tension = tension;
-    return curve;
+    return new Float32Array(verts);
   };
 
   useFrame(() => {
     if (count > 1) {
       splineRef.current.geometry.setAttribute(
         "position",
-        new THREE.Float32BufferAttribute(
-          ComputeSplineVertices(computeCurve(), samples),
-          3,
-        ),
+        new THREE.Float32BufferAttribute(computeCurve(), 3),
       );
     }
   });
@@ -419,7 +439,7 @@ function Spline({ count }) {
           <bufferGeometry>
             <bufferAttribute
               attach="attributes-position"
-              array={ComputeSplineVertices(computeCurve(), samples)}
+              array={computeCurve()}
               count={samples}
               itemSize={3}
             />
