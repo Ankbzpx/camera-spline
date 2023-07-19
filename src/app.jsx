@@ -113,15 +113,14 @@ function Controls() {
 }
 
 function App() {
-  useControls({
+  const { height, radius } = useControls({
     Add: button(() => {
       // console.log(useThree())
     }),
-    vec3: {
-      x: 0,
-      y: 2,
-      z: 1.5,
-    },
+    Cylinder: folder({
+      height: { value: 1.75, min: 0.1, max: 3, step: 0.1 },
+      radius: { value: 0.2, min: 0.01, max: 1, step: 0.05 },
+    }),
   });
 
   return (
@@ -131,8 +130,12 @@ function App() {
           <color attach="background" args={["#4F4F4F"]} />
           <ambientLight />
           <pointLight position={[10, 10, 10]} />
-          <AuxCamera id={"C0"} initPos={new THREE.Vector3(0, 1.5, 2)} />
-          <AuxCamera id={"C1"} initPos={new THREE.Vector3(0.5, 1.5, 2)} />
+          <mesh position={[0, height / 2, 0]}>
+            <cylinderGeometry args={[radius, radius, height, 32]} />
+            <meshStandardMaterial />
+          </mesh>
+          <AuxCamera id={"C0"} initPos={new THREE.Vector3(0, 1, 2.5)} />
+          <AuxCamera id={"C1"} initPos={new THREE.Vector3(0.5, 1, 2.5)} />
           <Grid
             position={[0, -0.01, 0]}
             args={[10, 10]}
