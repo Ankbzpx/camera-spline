@@ -1,7 +1,7 @@
 import { useState, useRef, memo, useEffect } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useControls, button, folder } from "leva";
+import { useControls, folder } from "leva";
 import {
   OrbitControls,
   TransformControls,
@@ -137,11 +137,10 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
     set({ rot: { x: worldRot.x, y: worldRot.y, z: worldRot.z } });
   });
 
-  const root_id = `${id}_root`;
   const cam_id = `${id}_cam`;
 
   return (
-    <object3D position={[pos.x, pos.y, pos.z]} name={root_id}>
+    <>
       <PerspectiveCamera
         manual
         name={cam_id}
@@ -150,6 +149,7 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
         aspect={aspect}
         near={near}
         far={far}
+        position={[pos.x, pos.y, pos.z]}
         rotation={[rot.x, rot.y, rot.z]}
         PerspectiveCamera
       >
@@ -180,7 +180,7 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
           color={snap.focal === id ? "hotpink" : "orange"}
         />
       </mesh>
-    </object3D>
+    </>
   );
 }
 
@@ -190,9 +190,6 @@ function Controls() {
   const scene = useThree((state) => state.scene);
 
   const focal = snap.focal ? scene.getObjectByName(snap.focal) : undefined;
-  const root = snap.focal
-    ? scene.getObjectByName(`${snap.focal}_root`)
-    : undefined;
   const cam = snap.focal
     ? scene.getObjectByName(`${snap.focal}_cam`)
     : undefined;
@@ -211,10 +208,13 @@ function Controls() {
             }}
           />
           <TransformControls
-            object={root}
+            object={cam}
             mode={modes[snap.mode]}
             onObjectChange={() => {
               console.log("focal root changed");
+              const worldPos = new THREE.Vector3();
+              focal.getWorldPosition(worldPos);
+              cam.lookAt(worldPos);
             }}
           />
         </>
@@ -245,7 +245,6 @@ const Shadows = memo(() => (
 function CameraBundle({ count, initHeight }) {
   useEffect(() => {
     state.focal = null;
-    state.root = null;
   }, [count]);
 
   const offset = (-0.5 * (count - 1)) / 2;
@@ -257,7 +256,9 @@ function CameraBundle({ count, initHeight }) {
     const initRot = new THREE.Euler().setFromRotationMatrix(
       new THREE.Matrix4().lookAt(initPos, focal, up),
     );
-    const initFocal = new THREE.Vector3().copy(focal).sub(initPos).normalize();
+    const initFocal = new THREE.Vector3()
+      .copy(initPos)
+      .add(new THREE.Vector3().copy(focal).sub(initPos).normalize());
     return (
       <AuxCamera
         key={id}
