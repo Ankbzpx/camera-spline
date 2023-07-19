@@ -90,7 +90,7 @@ function Frustum({ fov, aspect, near, far }) {
   );
 }
 
-function AuxCamera({ id, initPos, initRot }) {
+function AuxCamera({ id, initPos, initRot, initFocal }) {
   const snap = useSnapshot(state);
   const cameraRef = useRef(null);
   const focalRef = useRef(null);
@@ -99,8 +99,9 @@ function AuxCamera({ id, initPos, initRot }) {
   const [hovered, setHovered] = useState(false);
   useCursor(hovered);
 
-  // Reference https://stackoverflow.com/questions/11508463/javascript-set-object-key-by-variable
-  const [{ pos, rot, near, far, fov, aspect }, set] = useControls(() => ({
+  // IMPORTANT Use Leva for state storage
+  const [{ pos, rot, foc, near, far, fov, aspect }, set] = useControls(() => ({
+    // Reference https://stackoverflow.com/questions/11508463/javascript-set-object-key-by-variable
     [`Camera ${id}`]: folder({
       pos: {
         x: initPos.x,
@@ -111,6 +112,11 @@ function AuxCamera({ id, initPos, initRot }) {
         x: initRot.x,
         y: initRot.y,
         z: initRot.z,
+      },
+      foc: {
+        x: initFocal.x,
+        y: initFocal.y,
+        z: initFocal.z,
       },
       near: { value: 0.1, min: 0.01, max: 1, step: 0.05 },
       far: { value: 3, min: 1, max: 10, step: 0.1 },
@@ -152,7 +158,7 @@ function AuxCamera({ id, initPos, initRot }) {
       <mesh
         ref={focalRef}
         name={id}
-        position={[0, 0, -1]}
+        position={[foc.x, foc.y, foc.z]}
         onClick={(e) => {
           e.stopPropagation();
           state.focal = id;
@@ -245,15 +251,21 @@ function CameraBundle({ count, initHeight }) {
   const offset = (-0.5 * (count - 1)) / 2;
   const focal = new THREE.Vector3(0, initHeight, 0);
   const up = new THREE.Vector3(0, 1, 0);
-  // console.log(count)
 
   return [...Array(count).keys()].map((id) => {
     const initPos = new THREE.Vector3(offset + 0.5 * id, initHeight, 2.5);
     const initRot = new THREE.Euler().setFromRotationMatrix(
       new THREE.Matrix4().lookAt(initPos, focal, up),
     );
+    const initFocal = new THREE.Vector3().copy(focal).sub(initPos).normalize();
     return (
-      <AuxCamera key={id} id={`C${id}`} initPos={initPos} initRot={initRot} />
+      <AuxCamera
+        key={id}
+        id={`C${id}`}
+        initPos={initPos}
+        initRot={initRot}
+        initFocal={initFocal}
+      />
     );
   });
 }
