@@ -99,7 +99,6 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
   const [hovered, setHovered] = useState(false);
   useCursor(hovered);
 
-  // IMPORTANT Use Leva for state storage
   const [{ pos, rot, foc, near, far, fov, aspect }, set] = useControls(() => ({
     // Reference https://stackoverflow.com/questions/11508463/javascript-set-object-key-by-variable
     [`Camera ${id}`]: folder({
@@ -125,6 +124,7 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
     }),
   }));
 
+  // IMPORTANT Use Leva for state storage
   useFrame(() => {
     const worldPos = new THREE.Vector3();
     const worldQua = new THREE.Quaternion();
@@ -135,6 +135,9 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
     const worldRot = new THREE.Euler().setFromQuaternion(worldQua);
     set({ pos: { x: worldPos.x, y: worldPos.y, z: worldPos.z } });
     set({ rot: { x: worldRot.x, y: worldRot.y, z: worldRot.z } });
+
+    focalRef.current.getWorldPosition(worldPos);
+    set({ foc: { x: worldPos.x, y: worldPos.y, z: worldPos.z } });
   });
 
   const cam_id = `${id}_cam`;
