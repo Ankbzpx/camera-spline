@@ -22,13 +22,9 @@ import "./app.css";
 const modes = ["translate", "rotate"];
 const state = proxy({ current: null, mode: 0 });
 
-function Frustum({ camera }) {
+function ComputeFrustumVertices(fov, aspect, near, far) {
+  const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
   const projInv = camera.projectionMatrixInverse;
-
-  const frustum_indices = new Uint16Array([
-    0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1, 1, 4, 3, 1, 3, 2,
-  ]);
-
   const frustum_vertices = [];
   const v0 = new THREE.Vector3(0, 0, 0);
   const v1 = new THREE.Vector3(-1, -1, 1).applyMatrix4(projInv);
@@ -41,10 +37,35 @@ function Frustum({ camera }) {
   frustum_vertices.push(v3.x, v3.y, v3.z);
   frustum_vertices.push(v4.x, v4.y, v4.z);
 
-  const frustum_vertices_array = new Float32Array(frustum_vertices);
+  return new Float32Array(frustum_vertices);
+}
+
+function Frustum({ fov, aspect, near, far }) {
+  const frustumRef = useRef(null);
+
+  const frustum_indices = new Uint16Array([
+    0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1, 1, 4, 3, 1, 3, 2,
+  ]);
+
+  const { opacity, color } = useControls("Frustum", {
+    opacity: { value: 0.3, min: 0.0, max: 1, step: 0.1 },
+    color: "#ffffff",
+  });
+
+  useEffect(() => {
+    frustumRef.current.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(
+        ComputeFrustumVertices(fov, aspect, near, far),
+        3,
+      ),
+    );
+  }, [fov, aspect, near, far]);
+
+  const frustum_vertices_array = ComputeFrustumVertices(fov, aspect, near, far);
 
   return (
-    <mesh>
+    <mesh ref={frustumRef}>
       <bufferGeometry>
         <bufferAttribute
           attach="attributes-position"
@@ -60,9 +81,9 @@ function Frustum({ camera }) {
         />
       </bufferGeometry>
       <meshBasicMaterial
-        color="white"
+        color={color}
         transparent
-        opacity={0.3}
+        opacity={opacity}
         depthTest={false}
       />
     </mesh>
@@ -113,7 +134,7 @@ function AuxCamera({ id, initPos }) {
         far={far}
         PerspectiveCamera
       >
-        <Frustum camera={new THREE.PerspectiveCamera(fov, aspect, near, far)} />
+        <Frustum fov={fov} aspect={aspect} near={near} far={far} />
       </PerspectiveCamera>
       <mesh
         ref={focalRef}
