@@ -20,7 +20,7 @@ import "./app.css";
 
 // Reactive state model, using Valtio ...
 const modes = ["translate", "rotate"];
-const state = proxy({ focal: null, root: null, mode: 0 });
+const state = proxy({ focal: null, mode: 0 });
 
 function ComputeFrustumVertices(fov, aspect, near, far) {
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
@@ -90,7 +90,7 @@ function Frustum({ fov, aspect, near, far }) {
   );
 }
 
-function AuxCamera({ id, initPos }) {
+function AuxCamera({ id, initPos, initRot }) {
   const snap = useSnapshot(state);
   const cameraRef = useRef(null);
   const focalRef = useRef(null);
@@ -100,12 +100,17 @@ function AuxCamera({ id, initPos }) {
   useCursor(hovered);
 
   // Reference https://stackoverflow.com/questions/11508463/javascript-set-object-key-by-variable
-  const [{ pos, near, far, fov, aspect }, set] = useControls(() => ({
+  const [{ pos, rot, near, far, fov, aspect }, set] = useControls(() => ({
     [`Camera ${id}`]: folder({
       pos: {
         x: initPos.x,
         y: initPos.y,
         z: initPos.z,
+      },
+      rot: {
+        x: initRot.x,
+        y: initRot.y,
+        z: initRot.z,
       },
       near: { value: 0.1, min: 0.01, max: 1, step: 0.05 },
       far: { value: 3, min: 1, max: 10, step: 0.1 },
@@ -116,24 +121,30 @@ function AuxCamera({ id, initPos }) {
 
   useFrame(() => {
     const worldPos = new THREE.Vector3();
-    focalRef.current.getWorldPosition(worldPos);
-    cameraRef.current.lookAt(worldPos);
+    const worldQua = new THREE.Quaternion();
 
     cameraRef.current.getWorldPosition(worldPos);
+    cameraRef.current.getWorldQuaternion(worldQua);
+
+    const worldRot = new THREE.Euler().setFromQuaternion(worldQua);
     set({ pos: { x: worldPos.x, y: worldPos.y, z: worldPos.z } });
+    set({ rot: { x: worldRot.x, y: worldRot.y, z: worldRot.z } });
   });
 
   const root_id = `${id}_root`;
+  const cam_id = `${id}_cam`;
 
   return (
     <object3D position={[pos.x, pos.y, pos.z]} name={root_id}>
       <PerspectiveCamera
         manual
+        name={cam_id}
         ref={cameraRef}
         fov={fov}
         aspect={aspect}
         near={near}
         far={far}
+        rotation={[rot.x, rot.y, rot.z]}
         PerspectiveCamera
       >
         <Frustum fov={fov} aspect={aspect} near={near} far={far} />
@@ -145,14 +156,12 @@ function AuxCamera({ id, initPos }) {
         onClick={(e) => {
           e.stopPropagation();
           state.focal = id;
-          state.root = root_id;
         }}
         onPointerOver={(e) => (e.stopPropagation(), setHovered(true))}
         onPointerOut={() => setHovered(false)}
         onPointerMissed={(e) => {
           if (e.type === "click") {
             state.focal = null;
-            state.root = null;
           }
         }}
         onContextMenu={(e) =>
@@ -173,19 +182,34 @@ function Controls() {
   // Get notified on changes to state
   const snap = useSnapshot(state);
   const scene = useThree((state) => state.scene);
+
+  const focal = snap.focal ? scene.getObjectByName(snap.focal) : undefined;
+  const root = snap.focal
+    ? scene.getObjectByName(`${snap.focal}_root`)
+    : undefined;
+  const cam = snap.focal
+    ? scene.getObjectByName(`${snap.focal}_cam`)
+    : undefined;
+
   return (
     <>
-      {/* As of drei@7.13 transform-controls can refer to the target by children, or the object prop */}
       {snap.focal && (
         <>
-          <TransformControls object={scene.getObjectByName(snap.focal)} />
-        </>
-      )}
-      {snap.root && (
-        <>
           <TransformControls
-            object={scene.getObjectByName(snap.root)}
+            object={focal}
+            onObjectChange={() => {
+              console.log("focal changed");
+              const worldPos = new THREE.Vector3();
+              focal.getWorldPosition(worldPos);
+              cam.lookAt(worldPos);
+            }}
+          />
+          <TransformControls
+            object={root}
             mode={modes[snap.mode]}
+            onObjectChange={() => {
+              console.log("focal root changed");
+            }}
           />
         </>
       )}
@@ -212,29 +236,51 @@ const Shadows = memo(() => (
   </AccumulativeShadows>
 ));
 
-function CameraManager() {
-  const { count } = useControls({
-    Camera: folder({
-      count: { value: 4, min: 0, max: 10, step: 1 },
-    }),
-  });
-
+function CameraBundle({ count, initHeight }) {
   useEffect(() => {
     state.focal = null;
     state.root = null;
   }, [count]);
 
-  return [...Array(count).keys()].map((id) => (
-    <AuxCamera
-      key={id}
-      id={`C${id}`}
-      initPos={new THREE.Vector3(0.5 * id, 1, 2.5)}
-    />
-  ));
+  const offset = (-0.5 * (count - 1)) / 2;
+  const focal = new THREE.Vector3(0, initHeight, 0);
+  const up = new THREE.Vector3(0, 1, 0);
+  // console.log(count)
+
+  return [...Array(count).keys()].map((id) => {
+    const initPos = new THREE.Vector3(offset + 0.5 * id, initHeight, 2.5);
+    const initRot = new THREE.Euler().setFromRotationMatrix(
+      new THREE.Matrix4().lookAt(initPos, focal, up),
+    );
+    return (
+      <AuxCamera key={id} id={`C${id}`} initPos={initPos} initRot={initRot} />
+    );
+  });
+}
+
+function Spline({ count }) {
+  const scene = useThree((state) => state.scene);
+  const positions = [];
+  const worldPos = new THREE.Vector3();
+
+  for (let i = 0; i < count; i++) {
+    const id = `C${i}`;
+
+    const focal = scene.getObjectByName(id);
+    if (focal) {
+      focal.getWorldPosition(worldPos);
+      positions.push(worldPos);
+    }
+  }
+
+  console.log(positions);
 }
 
 function App() {
-  const { height, radius, color } = useControls({
+  const { count, height, radius, color } = useControls({
+    Camera: folder({
+      count: { value: 4, min: 0, max: 10, step: 1 },
+    }),
     Cylinder: folder({
       height: { value: 1.75, min: 0.1, max: 3, step: 0.1 },
       radius: { value: 0.3, min: 0.01, max: 1, step: 0.05 },
@@ -251,7 +297,8 @@ function App() {
             <cylinderGeometry args={[radius, radius, height, 32]} />
             <meshStandardMaterial color={color} />
           </mesh>
-          <CameraManager />
+          <CameraBundle count={count} initHeight={height / 2} />
+          {/* <Spline count={count} /> */}
           <Grid
             position={[0, -0.01, 0]}
             args={[10, 10]}
