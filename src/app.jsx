@@ -103,38 +103,44 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
   const snap = useSnapshot(state);
   const cameraRef = useRef(null);
   const focalRef = useRef(null);
+  const leftHandleRef = useRef(null);
+  const rightHandleRef = useRef(null);
+  const lineRef = useRef(null);
   useHelper(cameraRef, THREE.CameraHelper);
 
   const [hovered, setHovered] = useState(false);
   useCursor(hovered);
 
-  const [{ pos, rot, foc, near, far, fov, aspect, frustum }, set] = useControls(
-    () => ({
-      // Reference https://stackoverflow.com/questions/11508463/javascript-set-object-key-by-variable
-      [`Camera ${id}`]: folder({
-        pos: {
-          x: initPos.x,
-          y: initPos.y,
-          z: initPos.z,
-        },
-        rot: {
-          x: initRot.x,
-          y: initRot.y,
-          z: initRot.z,
-        },
-        foc: {
-          x: initFocal.x,
-          y: initFocal.y,
-          z: initFocal.z,
-        },
-        near: { value: 0.1, min: 0.01, max: 1, step: 0.05 },
-        far: { value: 3, min: 1, max: 10, step: 0.1 },
-        fov: { value: 55, min: 0, max: 180, step: 1 },
-        aspect: { value: 1.6, min: 0.1, max: 10, step: 0.1 },
-        frustum: false,
-      }),
+  const [
+    { pos, rot, foc, near, far, fov, aspect, frustum, leftHandle, rightHandle },
+    set,
+  ] = useControls(() => ({
+    // Reference https://stackoverflow.com/questions/11508463/javascript-set-object-key-by-variable
+    [`Camera ${id}`]: folder({
+      pos: {
+        x: initPos.x,
+        y: initPos.y,
+        z: initPos.z,
+      },
+      rot: {
+        x: initRot.x,
+        y: initRot.y,
+        z: initRot.z,
+      },
+      foc: {
+        x: initFocal.x,
+        y: initFocal.y,
+        z: initFocal.z,
+      },
+      near: { value: 0.1, min: 0.01, max: 1, step: 0.05 },
+      far: { value: 3, min: 1, max: 10, step: 0.1 },
+      fov: { value: 55, min: 0, max: 180, step: 1 },
+      aspect: { value: 1.6, min: 0.1, max: 10, step: 0.1 },
+      frustum: false,
+      leftHandle: { value: 0.5, min: 0.1, max: 2, step: 0.1 },
+      rightHandle: { value: 0.5, min: 0.1, max: 2, step: 0.1 },
     }),
-  );
+  }));
 
   // I wish I could put these in TransformControls callback (hack global useControls), but
   // 1. leva doesn't support duplicated entry in single useControls
@@ -142,6 +148,22 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
   useFrame(() => {
     const worldPos = new THREE.Vector3();
     const worldQua = new THREE.Quaternion();
+
+    const lineVertices = [];
+    lineVertices.push(
+      leftHandleRef.current.position.x,
+      leftHandleRef.current.position.y,
+      leftHandleRef.current.position.z,
+    );
+    lineVertices.push(
+      rightHandleRef.current.position.x,
+      rightHandleRef.current.position.y,
+      rightHandleRef.current.position.z,
+    );
+    lineRef.current.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(lineVertices, 3),
+    );
 
     cameraRef.current.getWorldPosition(worldPos);
     cameraRef.current.getWorldQuaternion(worldQua);
@@ -156,13 +178,15 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
     state.focalPos[id] = new THREE.Vector3().copy(worldPos);
   });
 
-  const cam_id = `${id}_cam`;
+  const z_depth = -new THREE.Vector3(pos.x, pos.y, pos.z)
+    .sub(new THREE.Vector3(foc.x, foc.y, foc.z))
+    .length();
 
   return (
     <>
       <PerspectiveCamera
         manual
-        name={cam_id}
+        name={`${id}_cam`}
         ref={cameraRef}
         fov={fov}
         aspect={aspect}
@@ -172,6 +196,37 @@ function AuxCamera({ id, initPos, initRot, initFocal }) {
         rotation={[rot.x, rot.y, rot.z]}
         PerspectiveCamera
       >
+        <mesh
+          name={`${id}_left`}
+          ref={leftHandleRef}
+          position={[-leftHandle, 0, z_depth]}
+        >
+          <sphereGeometry args={[0.05, 32, 16]} />
+          <meshStandardMaterial
+            color={snap.focal === id ? "hotpink" : "orange"}
+          />
+        </mesh>
+        <mesh
+          name={`${id}_right`}
+          ref={rightHandleRef}
+          position={[rightHandle, 0, z_depth]}
+        >
+          <sphereGeometry args={[0.05, 32, 16]} />
+          <meshStandardMaterial
+            color={snap.focal === id ? "hotpink" : "orange"}
+          />
+        </mesh>
+        <line ref={lineRef}>
+          <bufferGeometry>
+            <bufferAttribute
+              attach="attributes-position"
+              array={new Float32Array([-1, 0, z_depth, 1, 0, z_depth])}
+              count={2}
+              itemSize={3}
+            />
+          </bufferGeometry>
+          <lineDashedMaterial />
+        </line>
         {frustum && <Frustum fov={fov} aspect={aspect} near={near} far={far} />}
       </PerspectiveCamera>
       <mesh
@@ -212,11 +267,24 @@ function Controls() {
   const cam = snap.focal
     ? scene.getObjectByName(`${snap.focal}_cam`)
     : undefined;
+  const leftHandle = snap.focal
+    ? scene.getObjectByName(`${snap.focal}_left`)
+    : undefined;
+  const rightHandle = snap.focal
+    ? scene.getObjectByName(`${snap.focal}_right`)
+    : undefined;
 
   const worldPos = new THREE.Vector3();
   const updateFocal = () => {
     focal.getWorldPosition(worldPos);
+    const focalPos = new THREE.Vector3().copy(worldPos);
     cam.lookAt(worldPos);
+    cam.getWorldPosition(worldPos);
+    const camPos = new THREE.Vector3().copy(worldPos);
+
+    const z_depth = -camPos.sub(focalPos).length();
+    leftHandle.position.z = z_depth;
+    rightHandle.position.z = z_depth;
   };
 
   return (
@@ -298,7 +366,7 @@ function Spline({ count }) {
   const { width, tension, supportFactor, samples, color } = useControls(
     "Spline",
     {
-      width: { value: 2, min: 0.01, max: 10, step: 0.5 },
+      width: { value: 10, min: 0.01, max: 20, step: 0.5 },
       tension: { value: 0.5, min: 0.01, max: 1, step: 0.01 },
       supportFactor: { value: 0.01, min: 0.01, max: 0.2, step: 0.01 },
       samples: { value: 200, min: 20, max: 1000, step: 10 },
