@@ -46,15 +46,6 @@ function ComputeFrustumVertices(fov, aspect, near, far) {
   return new Float32Array(frustumVertices);
 }
 
-function ComputeSplineVertices(curve, samples) {
-  const curvePoints = curve.getPoints(samples);
-  const verts = [];
-  for (let i = 0; i < samples; i++) {
-    verts.push(curvePoints[i].x, curvePoints[i].y, curvePoints[i].z);
-  }
-  return new Float32Array(verts);
-}
-
 function Frustum({ fov, aspect, near, far }) {
   const frustumRef = useRef(null);
 
